@@ -289,5 +289,51 @@ class EditorUI:
             key_colored = colorize(key, Colors.YELLOW)
             print(f"  {key_colored} {desc}")
 
+    def display_folder_navigation_menu(self, current_path: str, subdirs: List[str], audio_file_count: int):
+        """Display folder navigation menu."""
+        print_header("Folder Navigation")
+        
+        # Show current path
+        print_info(f"Current: {current_path}")
+        
+        # Show audio files status
+        if audio_file_count > 0:
+            audio_status = highlight(f"{audio_file_count} audio files found")
+            print(f"Audio files: {audio_status}")
+        else:
+            audio_status = dim("No audio files in this directory")
+            print(f"Audio files: {audio_status}")
+        
+        print_section("Navigation Options")
+        
+        # Show subdirectories
+        if subdirs:
+            print(dim("Subdirectories:"))
+            for i, subdir in enumerate(subdirs):
+                dir_name = os.path.basename(subdir)
+                index_str = colorize(f"{i+1})", Colors.CYAN, Colors.BRIGHT)
+                print(f"  {index_str} {dir_name}")
+            print()
+        else:
+            print(dim("No subdirectories found"))
+            print()
+        
+        # Show available actions
+        options = []
+        
+        # Add edit option if audio files are present
+        if audio_file_count > 0:
+            options.append(("E)", f"Edit audio files in this directory ({audio_file_count} files)"))
+        
+        # Add navigation options
+        options.extend([
+            ("U)", "Go up one directory"),
+            ("Q)", "Quit")
+        ])
+        
+        for key, desc in options:
+            key_colored = colorize(key, Colors.YELLOW)
+            print(f"  {key_colored} {desc}")
+
 # Global UI instance
 ui = EditorUI() 

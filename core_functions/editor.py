@@ -201,6 +201,65 @@ class AudioMetadataEditor:
         self.current_directory = None
         self.audio_files = []
     
+    def run_folder_navigator(self, root_directory: str) -> bool:
+        """Run the folder navigation interface starting from root directory."""
+        if not os.path.exists(root_directory):
+            print_error(f"Directory not found: {root_directory}")
+            return False
+        
+        if not os.path.isdir(root_directory):
+            print_error(f"Path is not a directory: {root_directory}")
+            return False
+        
+        current_path = os.path.abspath(root_directory)
+        
+        while True:
+            # Get subdirectories and audio files in current path
+            subdirs = self._get_subdirectories(current_path)
+            audio_files = find_audio_files(current_path)
+            
+            # Display navigation menu
+            ui.display_folder_navigation_menu(current_path, subdirs, len(audio_files))
+            choice = ui.get_menu_choice()
+            
+            if choice.upper() == 'Q':
+                return True
+            elif choice.upper() == 'U' and current_path != root_directory:
+                # Go up one directory (but not above root)
+                parent = os.path.dirname(current_path)
+                if parent != current_path and len(parent) >= len(root_directory):
+                    current_path = parent
+                else:
+                    ui.show_invalid_option()
+            elif choice.upper() == 'E' and audio_files:
+                # Edit audio files in current directory
+                if self.run_main_menu(current_path):
+                    continue  # Return to navigation after editing
+                else:
+                    return False
+            elif choice.isdigit():
+                # Navigate to subdirectory
+                dir_index = int(choice) - 1
+                if 0 <= dir_index < len(subdirs):
+                    current_path = subdirs[dir_index]
+                else:
+                    ui.show_invalid_option()
+            else:
+                ui.show_invalid_option()
+    
+    def _get_subdirectories(self, directory: str) -> list:
+        """Get list of subdirectories in the given directory."""
+        subdirs = []
+        try:
+            for item in sorted(os.listdir(directory)):
+                item_path = os.path.join(directory, item)
+                if os.path.isdir(item_path) and not item.startswith('.'):
+                    subdirs.append(item_path)
+        except PermissionError:
+            print_error(f"Permission denied accessing directory: {directory}")
+        
+        return subdirs
+
     def run_main_menu(self, directory: str) -> bool:
         """Run the main menu interface."""
         self.current_directory = directory

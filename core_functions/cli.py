@@ -20,9 +20,22 @@ def create_parser() -> argparse.ArgumentParser:
 Examples:
   %(prog)s song.mp3                    # Edit a single audio file
   %(prog)s /path/to/music/folder       # Edit all audio files in a folder
+  %(prog)s /path/to/music/library      # Navigate through music library folders
   %(prog)s --version                   # Show version information
 
 Supported formats: MP3, M4A, FLAC, OGG
+
+The tool provides two main modes:
+
+1. FOLDER NAVIGATION MODE:
+   - Navigate through directory structures
+   - Only shows editing options when audio files are found
+   - Perfect for large music libraries with nested folders
+
+2. DIRECT EDITING MODE:
+   - Edit files in a specific directory
+   - Individual file editing or batch processing
+   - Full metadata editing capabilities
 
 The tool provides an interactive interface for editing:
 - Title, Artist, Album, Album Artist
@@ -87,7 +100,32 @@ def main() -> int:
             print_info(f"Loading audio file: {os.path.basename(args.path)}")
             success = editor.edit_single_file(args.path)
         else:
-            success = editor.edit_batch_files(args.path)
+            # It's a directory - check if it has audio files
+            from .audio import find_audio_files
+            audio_files = find_audio_files(args.path)
+            
+            if audio_files:
+                # Directory has audio files - ask user which mode to use
+                print_info(f"Found {len(audio_files)} audio files in: {args.path}")
+                print_info("Choose mode:")
+                print("  1) Navigate through subdirectories")
+                print("  2) Edit files in this directory directly")
+                
+                while True:
+                    choice = input("Enter choice (1 or 2): ").strip()
+                    if choice == '1':
+                        success = editor.run_folder_navigator(args.path)
+                        break
+                    elif choice == '2':
+                        success = editor.run_main_menu(args.path)
+                        break
+                    else:
+                        print("Invalid choice. Please enter 1 or 2.")
+            else:
+                # No audio files in root directory - use folder navigation
+                print_info(f"No audio files found in root directory: {args.path}")
+                print_info("Starting folder navigation mode...")
+                success = editor.run_folder_navigator(args.path)
         
         if success:
             print_info("Editor session completed.")
