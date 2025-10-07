@@ -3,16 +3,27 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
 	taglib "go.senan.xyz/taglib"
 )
 
-// View renders the current state of the application
+// View renders the current state with bordered panels
 func (m model) View() string {
 	if m.width == 0 {
 		return "Loading..."
+	}
+
+	// Show preview overlay if active
+	if m.showPreview {
+		return m.renderPreview()
+	}
+
+	// Show file browser overlay if active
+	if m.showFileBrowser {
+		return m.renderFileBrowser()
 	}
 
 	// Show input prompt overlay if active
@@ -20,153 +31,56 @@ func (m model) View() string {
 		return m.renderInputPrompt()
 	}
 
-	// Get current node for file display
-	currentNode := m.getCurrentNode()
-
-	// Calculate panel dimensions (with borders)
-	leftWidth := m.width/2 - 1
-	rightWidth := m.width - leftWidth - 3
-	panelHeight := m.height - 3 // Leave room for footer
-
-	return m.renderBorderedLayout(currentNode, leftWidth, rightWidth, panelHeight)
-}
-
-// renderBorderedLayout renders the main layout with bordered panels
-func (m model) renderBorderedLayout(currentNode *TreeNode, leftWidth, rightWidth, panelHeight int) string {
 	var s strings.Builder
 
-	// Get content for both panels
+	// Calculate panel dimensions
+	leftWidth := m.width/2 - 1
+	rightWidth := m.width - leftWidth - 2
+	panelHeight := m.height - 2 // Leave room for footer
+
+	// Get current node
+	currentNode := m.getCurrentNode()
+
+	// Get panel content
 	treeContent := m.renderTreeContent()
 	filesContent := m.renderFilesContent(currentNode)
 
-	// Determine titles and focus
-	treeTitle := "Files"
-	filesTitle := "Details"
-	treeFocused := !m.inFilePanel
-	filesFocused := m.inFilePanel
-
-	// Create bordered boxes
-	leftBox := renderBorderedBox(treeTitle, treeContent, leftWidth, panelHeight, treeFocused)
-	rightBox := renderBorderedBox(filesTitle, filesContent, rightWidth, panelHeight, filesFocused)
-
-	// Render side by side
-	s.WriteString(renderSideBySide(leftBox, rightBox))
-
-	// If edit menu is shown, render it as an overlay at the bottom left
+	// If edit menu is shown, create smaller panels and separate edit menu
 	if m.showEditMenu {
-		// Three panels: left (tree), bottom left (edit menu overlay), right (files)
-		leftWidth := m.width / 3
-		rightWidth := m.width - leftWidth - 1
+		menuHeight := 8
+		treeHeight := panelHeight - menuHeight // No spacing needed, borders touch
 
-		leftLines = m.renderTree()
-		editLines := m.renderEditMenu()
-		rightLines = m.renderFiles(currentNode)
+		// Determine focus
+		treeFocused := false
+		filesFocused := false
 
-		availHeight := m.height - 2
-		editHeight := len(editLines)
-		treeOnlyHeight := availHeight - editHeight
+		// Create smaller tree panel (left top)
+		treePanel := renderBorderedPanel("Files", treeContent, leftWidth, treeHeight, treeFocused)
 
-		// Render side by side
-		for i := 0; i < availHeight; i++ {
-			if i < treeOnlyHeight {
-				// Top left: tree only
-				if i < len(leftLines) {
-					line := leftLines[i]
-					lineWidth := runewidth.StringWidth(stripAnsi(line))
-					if lineWidth > leftWidth {
-						stripped := stripAnsi(line)
-						truncated := runewidth.Truncate(stripped, leftWidth, "")
-						line = truncated
-						lineWidth = leftWidth
-					}
-					s.WriteString(line)
-					s.WriteString(strings.Repeat(" ", leftWidth-lineWidth))
-				} else {
-					s.WriteString(strings.Repeat(" ", leftWidth))
-				}
-			} else {
-				// Bottom left: edit menu (overlaid on tree)
-				lineIdx := i - treeOnlyHeight
-				if lineIdx < len(editLines) {
-					line := editLines[lineIdx]
-					lineWidth := runewidth.StringWidth(stripAnsi(line))
-					if lineWidth > leftWidth {
-						stripped := stripAnsi(line)
-						truncated := runewidth.Truncate(stripped, leftWidth, "")
-						line = truncated
-						lineWidth = leftWidth
-					}
-					s.WriteString(line)
-					s.WriteString(strings.Repeat(" ", leftWidth-lineWidth))
-				} else {
-					s.WriteString(strings.Repeat(" ", leftWidth))
-				}
-			}
+		// Create edit menu panel (left bottom)
+		menuContent := m.renderEditMenu()
+		menuPanel := renderBorderedPanel("Edit Options", menuContent, leftWidth, menuHeight, true)
 
-			s.WriteString("│")
+		// Create full-height Details panel (right)
+		detailsPanel := renderBorderedPanel("Details", filesContent, rightWidth, panelHeight, filesFocused)
 
-			// Right side (files) - full height
-			if i < len(rightLines) {
-				line := rightLines[i]
-				lineWidth := runewidth.StringWidth(stripAnsi(line))
-				if lineWidth > rightWidth {
-					stripped := stripAnsi(line)
-					truncated := runewidth.Truncate(stripped, rightWidth, "")
-					line = truncated
-				}
-				s.WriteString(line)
-			}
+		// Combine vertically stacked left panels with right panel
+		leftColumn := append(treePanel, menuPanel...)
 
-			s.WriteString("\n")
-		}
+		// Combine with right panel side by side
+		s.WriteString(combinePanelsSideBySide(leftColumn, detailsPanel))
+
 	} else {
-		// Normal view: left panel (tree), right panel (files)
-		leftWidth := m.width / 2
-		rightWidth := m.width - leftWidth - 1
+		// Determine focus
+		treeFocused := !m.inFilePanel
+		filesFocused := m.inFilePanel
 
-		leftLines = m.renderTree()
-		rightLines = m.renderFiles(currentNode)
+		// Create bordered panels
+		leftPanel := renderBorderedPanel("Files", treeContent, leftWidth, panelHeight, treeFocused)
+		rightPanel := renderBorderedPanel("Details", filesContent, rightWidth, panelHeight, filesFocused)
 
-		// Calculate max lines
-		maxLines := len(leftLines)
-		if len(rightLines) > maxLines {
-			maxLines = len(rightLines)
-		}
-
-		// Render side by side
-		for i := 0; i < maxLines && i < m.height-2; i++ {
-			// Left side (tree)
-			if i < len(leftLines) {
-				line := leftLines[i]
-				lineWidth := runewidth.StringWidth(stripAnsi(line))
-				if lineWidth > leftWidth {
-					stripped := stripAnsi(line)
-					truncated := runewidth.Truncate(stripped, leftWidth, "")
-					line = truncated
-					lineWidth = leftWidth
-				}
-				s.WriteString(line)
-				s.WriteString(strings.Repeat(" ", leftWidth-lineWidth))
-			} else {
-				s.WriteString(strings.Repeat(" ", leftWidth))
-			}
-
-			s.WriteString("│")
-
-			// Right side (files)
-			if i < len(rightLines) {
-				line := rightLines[i]
-				lineWidth := runewidth.StringWidth(stripAnsi(line))
-				if lineWidth > rightWidth {
-					stripped := stripAnsi(line)
-					truncated := runewidth.Truncate(stripped, rightWidth, "")
-					line = truncated
-				}
-				s.WriteString(line)
-			}
-
-			s.WriteString("\n")
-		}
+		// Combine panels
+		s.WriteString(combinePanelsSideBySide(leftPanel, rightPanel))
 	}
 
 	// Footer
@@ -186,8 +100,8 @@ func (m model) renderBorderedLayout(currentNode *TreeNode, leftWidth, rightWidth
 	return s.String()
 }
 
-// renderTree generates the left panel tree view
-func (m model) renderTree() []string {
+// renderTreeContent generates tree content without borders
+func (m model) renderTreeContent() []string {
 	lines := make([]string, 0)
 
 	for i, node := range m.flattenedTree {
@@ -237,22 +151,19 @@ func (m model) renderTree() []string {
 	return lines
 }
 
-// renderFiles generates the file list panel
-func (m model) renderFiles(node *TreeNode) []string {
+// renderFilesContent generates file list content without borders
+func (m model) renderFilesContent(node *TreeNode) []string {
 	lines := make([]string, 0)
 
 	if node == nil {
-		lines = append(lines, "\033[90m  No folder selected\033[0m")
+		lines = append(lines, "\033[90mNo folder selected\033[0m")
 		return lines
 	}
 
 	if len(node.Files) == 0 {
-		lines = append(lines, "\033[90m  No audio files\033[0m")
+		lines = append(lines, "\033[90mNo audio files\033[0m")
 		return lines
 	}
-
-	lines = append(lines, fmt.Sprintf("\033[1mFiles in: \033[36m%s\033[0m", node.Name))
-	lines = append(lines, "")
 
 	for i, file := range node.Files {
 		var line strings.Builder
@@ -296,20 +207,16 @@ func (m model) renderFiles(node *TreeNode) []string {
 
 	return lines
 }
-
-// renderEditMenu generates the edit menu panel
 func (m model) renderEditMenu() []string {
 	lines := make([]string, 0)
 
-	lines = append(lines, "\033[1mEdit Options\033[0m")
-	lines = append(lines, "")
-
 	options := []string{
-		"1. Strip text from titles",
-		"2. Edit Title",
-		"3. Edit Artist",
-		"4. Edit Album",
-		"5. Edit Year",
+		"Strip text from titles",
+		"Add cover image",
+		"Edit Title",
+		"Edit Artist",
+		"Edit Album",
+		"Edit Year",
 	}
 
 	for i, opt := range options {
@@ -344,12 +251,12 @@ func (m model) renderFooter() string {
 	} else if m.inFilePanel {
 		hasSelected := len(m.selectedFiles) > 0
 		if hasSelected {
-			return "\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]toggle [\033[33ma\033[90m]toggle all [\033[33me\033[90m]edit [\033[33mtab\033[90m]tree [\033[33mq\033[90m]quit\033[0m"
+			return "\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]toggle [\033[33ma\033[90m]toggle all [\033[33me\033[90m]edit [\033[33mp\033[90m]preview [\033[33mtab\033[90m]tree [\033[33mq\033[90m]quit\033[0m"
 		} else {
-			return "\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]toggle [\033[33ma\033[90m]toggle all [\033[33mtab\033[90m]tree [\033[33mq\033[90m]quit\033[0m"
+			return "\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]toggle [\033[33ma\033[90m]toggle all [\033[33mp\033[90m]preview [\033[33mtab\033[90m]tree [\033[33mq\033[90m]quit\033[0m"
 		}
 	} else {
-		return "\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]open/toggle [\033[33mtab\033[90m]files [\033[33mq\033[90m]quit\033[0m"
+		return "\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]open/toggle [\033[33mp\033[90m]preview [\033[33mtab\033[90m]files [\033[33mq\033[90m]quit\033[0m"
 	}
 }
 
@@ -367,82 +274,37 @@ func (m model) renderInputPrompt() string {
 
 // renderStripPrompt renders the strip text prompt with highlighting
 func (m model) renderStripPrompt() string {
-	var s strings.Builder
-
 	// Split screen: left = input prompt, right = preview
-	leftWidth := 50
-	rightWidth := m.width - leftWidth - 1
+	leftWidth := m.width/2 - 1
+	rightWidth := m.width - leftWidth - 2
+	panelHeight := m.height - 2 // Leave room for footer
 
-	// Build preview lines
-	previewLines := m.renderStripPreview()
+	// Build prompt box content
+	promptContent := make([]string, 0)
+	promptContent = append(promptContent, "")
+	promptContent = append(promptContent, m.inputPrompt)
+	promptContent = append(promptContent, "")
 
-	// Build prompt lines
-	promptLines := make([]string, 0)
-	promptLines = append(promptLines, "\033[1;36m╭"+strings.Repeat("─", leftWidth-2)+"╮\033[0m")
-	promptLines = append(promptLines, "\033[1;36m│\033[0m "+m.inputPrompt+strings.Repeat(" ", leftWidth-len(m.inputPrompt)-4)+" \033[1;36m│\033[0m")
-	promptLines = append(promptLines, "\033[1;36m│\033[0m"+strings.Repeat(" ", leftWidth-2)+"\033[1;36m│\033[0m")
+	// Input field
+	inputVisible := m.inputValue + " "
+	promptContent = append(promptContent, "\033[7m"+inputVisible+"\033[0m")
 
-	// Input field - properly account for visible width only
-	inputVisible := m.inputValue + " " // visible characters only
-	visibleWidth := runewidth.StringWidth(inputVisible)
+	// Build preview content
+	previewContent := m.renderStripPreview()
 
-	// Build the line with proper spacing
-	var inputDisplay strings.Builder
-	inputDisplay.WriteString("\033[1;36m│\033[0m ")
-	inputDisplay.WriteString("\033[7m")
-	inputDisplay.WriteString(inputVisible)
-	inputDisplay.WriteString("\033[0m")
+	// Create bordered panels
+	promptPanel := renderBorderedPanel("Input", promptContent, leftWidth, panelHeight, true)
+	previewPanel := renderBorderedPanel("Preview", previewContent, rightWidth, panelHeight, false)
 
-	// Add padding to reach the right border
-	paddingNeeded := leftWidth - visibleWidth - 4 // -4 for "│ " and " │"
-	if paddingNeeded > 0 {
-		inputDisplay.WriteString(strings.Repeat(" ", paddingNeeded))
-	}
-	inputDisplay.WriteString(" \033[1;36m│\033[0m")
+	// Combine panels side by side
+	var s strings.Builder
+	s.WriteString(combinePanelsSideBySide(promptPanel, previewPanel))
 
-	promptLines = append(promptLines, inputDisplay.String())
-
-	promptLines = append(promptLines, "\033[1;36m│\033[0m"+strings.Repeat(" ", leftWidth-2)+"\033[1;36m│\033[0m")
-	helpText := "\033[90m[enter]apply [esc]cancel\033[0m"
-	helpLen := runewidth.StringWidth(stripAnsi(helpText))
-	promptLines = append(promptLines, "\033[1;36m│\033[0m "+helpText+strings.Repeat(" ", leftWidth-helpLen-4)+" \033[1;36m│\033[0m")
-	promptLines = append(promptLines, "\033[1;36m╰"+strings.Repeat("─", leftWidth-2)+"╯\033[0m")
-
-	// Render side by side
-	maxLines := len(promptLines)
-	if len(previewLines) > maxLines {
-		maxLines = len(previewLines)
-	}
-
-	for i := 0; i < m.height-1; i++ {
-		// Left side (prompt)
-		if i < len(promptLines) {
-			line := promptLines[i]
-			lineWidth := runewidth.StringWidth(stripAnsi(line))
-			s.WriteString(line)
-			if lineWidth < leftWidth {
-				s.WriteString(strings.Repeat(" ", leftWidth-lineWidth))
-			}
-		} else {
-			s.WriteString(strings.Repeat(" ", leftWidth))
-		}
-
-		s.WriteString("│")
-
-		// Right side (preview)
-		if i < len(previewLines) {
-			line := previewLines[i]
-			lineWidth := runewidth.StringWidth(stripAnsi(line))
-			if lineWidth > rightWidth {
-				stripped := stripAnsi(line)
-				truncated := runewidth.Truncate(stripped, rightWidth, "")
-				line = truncated
-			}
-			s.WriteString(line)
-		}
-
-		s.WriteString("\n")
-	}
+	// Footer with help text
+	s.WriteString("\033[90m")
+	s.WriteString(strings.Repeat("─", m.width))
+	s.WriteString("\033[0m\n")
+	s.WriteString("\033[90m[\033[33menter\033[90m]apply [\033[33mesc\033[90m]cancel\033[0m")
 
 	return s.String()
 }
@@ -451,11 +313,8 @@ func (m model) renderStripPrompt() string {
 func (m model) renderStripPreview() []string {
 	lines := make([]string, 0)
 
-	lines = append(lines, "\033[1mPreview - Text to remove highlighted:\033[0m")
-	lines = append(lines, "")
-
 	if len(m.previewFiles) == 0 {
-		lines = append(lines, "\033[90m  No files selected\033[0m")
+		lines = append(lines, "\033[90mNo files selected\033[0m")
 		return lines
 	}
 
@@ -467,9 +326,9 @@ func (m model) renderStripPreview() []string {
 		if m.inputValue != "" && strings.Contains(nameWithoutExt, m.inputValue) {
 			// Replace matched text with highlighted version
 			highlighted := strings.ReplaceAll(nameWithoutExt, m.inputValue, "\033[41;1m"+m.inputValue+"\033[0m")
-			lines = append(lines, "  "+highlighted+filepath.Ext(filename))
+			lines = append(lines, highlighted+filepath.Ext(filename))
 		} else {
-			lines = append(lines, "  \033[90m"+filename+"\033[0m")
+			lines = append(lines, "\033[90m"+filename+"\033[0m")
 		}
 	}
 
@@ -531,34 +390,42 @@ func (m model) renderEditPrompt() string {
 			} else if i == startY+1 {
 				// Title
 				s.WriteString("\033[1;36m│\033[0m \033[1m" + m.inputPrompt + "\033[0m")
-				padding := modalWidth - len(m.inputPrompt) - 4
+				padding := modalWidth - runewidth.StringWidth(m.inputPrompt) - 4
 				s.WriteString(strings.Repeat(" ", padding) + " \033[1;36m│\033[0m\n")
 			} else if i == startY+3 {
 				// Current value label
 				s.WriteString("\033[1;36m│\033[0m \033[90mCurrent:\033[0m " + currentValue)
-				padding := modalWidth - len(currentValue) - 13
+				padding := modalWidth - runewidth.StringWidth(currentValue) - 13
 				if padding > 0 {
 					s.WriteString(strings.Repeat(" ", padding))
 				}
 				s.WriteString(" \033[1;36m│\033[0m\n")
 			} else if i == startY+5 {
 				// New value label
-				s.WriteString("\033[1;36m│\033[0m \033[1mNew:\033[0m")
-				s.WriteString(strings.Repeat(" ", modalWidth-9) + " \033[1;36m│\033[0m\n")
+				labelText := "New:"
+				s.WriteString("\033[1;36m│\033[0m \033[1m" + labelText + "\033[0m")
+				padding := modalWidth - runewidth.StringWidth(labelText) - 4
+				s.WriteString(strings.Repeat(" ", padding) + " \033[1;36m│\033[0m\n")
 			} else if i == startY+6 {
 				// Input field
-				inputVisible := m.inputValue + " "
-				visibleWidth := runewidth.StringWidth(inputVisible)
+				inputVisible := m.inputValue
+				if inputVisible == "" {
+					inputVisible = " "
+				}
+				// Add cursor space to the visible portion in reverse video
+				inputWithCursor := inputVisible + " "
+				visibleWidth := runewidth.StringWidth(inputWithCursor)
 
-				s.WriteString("\033[1;36m│\033[0m  \033[7m")
-				s.WriteString(inputVisible)
+				s.WriteString("\033[1;36m│\033[0m \033[7m")
+				s.WriteString(inputWithCursor)
 				s.WriteString("\033[0m")
 
-				padding := modalWidth - visibleWidth - 6
+				// Calculate padding: modalWidth - borders(2) - left_space(1) - inputWithCursor - right_space(1)
+				padding := modalWidth - 4 - visibleWidth
 				if padding > 0 {
 					s.WriteString(strings.Repeat(" ", padding))
 				}
-				s.WriteString("  \033[1;36m│\033[0m\n")
+				s.WriteString(" \033[1;36m│\033[0m\n")
 			} else if i == startY+8 {
 				// File count
 				fileCount := fmt.Sprintf("\033[90mApplying to %d file(s)\033[0m", len(m.previewFiles))
@@ -569,24 +436,229 @@ func (m model) renderEditPrompt() string {
 					s.WriteString(strings.Repeat(" ", padding))
 				}
 				s.WriteString(" \033[1;36m│\033[0m\n")
-			} else if i == startY+modalHeight-2 {
-				// Help text
-				helpText := "\033[90m[enter]apply [esc]cancel\033[0m"
-				helpLen := runewidth.StringWidth(stripAnsi(helpText))
-				s.WriteString("\033[1;36m│\033[0m ")
-				s.WriteString(helpText)
-				padding := modalWidth - helpLen - 4
-				s.WriteString(strings.Repeat(" ", padding) + " \033[1;36m│\033[0m\n")
 			} else {
 				// Empty line
 				s.WriteString("\033[1;36m│\033[0m")
 				s.WriteString(strings.Repeat(" ", modalWidth-2))
 				s.WriteString("\033[1;36m│\033[0m\n")
 			}
+		} else if i == startY+modalHeight {
+			// Add help text right below modal
+			s.WriteString(strings.Repeat(" ", startX+2))
+			s.WriteString("\033[90m[\033[33menter\033[90m]apply [\033[33mesc\033[90m]cancel\033[0m\n")
 		} else {
 			s.WriteString("\n")
 		}
 	}
+
+	return s.String()
+}
+
+// renderFileBrowser renders the file browser modal
+func (m model) renderFileBrowser() string {
+	var s strings.Builder
+
+	// Center modal
+	modalWidth := 80
+	modalHeight := 25
+	startY := (m.height - modalHeight) / 2
+	startX := (m.width - modalWidth) / 2
+
+	// Build content list
+	content := make([]string, 0)
+	content = append(content, "\033[90mCurrent: \033[0m"+m.browserDir)
+	content = append(content, "")
+
+	// Add directories
+	for i, dir := range m.browserDirs {
+		idx := i
+		var line strings.Builder
+
+		if idx == m.browserCursor {
+			line.WriteString("\033[36m> \033[0m")
+		} else {
+			line.WriteString("  ")
+		}
+
+		line.WriteString("\033[34m📁 ")
+		if idx == m.browserCursor {
+			line.WriteString("\033[1m")
+		}
+		line.WriteString(dir)
+		if idx == m.browserCursor {
+			line.WriteString("\033[0m")
+		} else {
+			line.WriteString("\033[0m")
+		}
+
+		content = append(content, line.String())
+	}
+
+	// Add files
+	for i, file := range m.browserFiles {
+		idx := i + len(m.browserDirs)
+		var line strings.Builder
+
+		if idx == m.browserCursor {
+			line.WriteString("\033[36m> \033[0m")
+		} else {
+			line.WriteString("  ")
+		}
+
+		line.WriteString("\033[32m🖼️  ")
+		if idx == m.browserCursor {
+			line.WriteString("\033[1m")
+		}
+		line.WriteString(file)
+		if idx == m.browserCursor {
+			line.WriteString("\033[0m")
+		} else {
+			line.WriteString("\033[0m")
+		}
+
+		content = append(content, line.String())
+	}
+
+	if len(m.browserDirs)+len(m.browserFiles) == 0 {
+		content = append(content, "\033[90mNo image files found\033[0m")
+	}
+
+	// Build modal
+	for i := 0; i < m.height; i++ {
+		if i >= startY && i < startY+modalHeight {
+			s.WriteString(strings.Repeat(" ", startX))
+
+			if i == startY {
+				// Top border
+				s.WriteString("\033[1;36m╭─ \033[1mSelect Cover Image\033[0m\033[1;36m ")
+				titleLen := len("Select Cover Image") + 3
+				remainingWidth := modalWidth - titleLen - 2
+				s.WriteString(strings.Repeat("─", remainingWidth))
+				s.WriteString("╮\033[0m\n")
+			} else if i == startY+modalHeight-1 {
+				// Bottom border
+				s.WriteString("\033[1;36m╰" + strings.Repeat("─", modalWidth-2) + "╯\033[0m\n")
+			} else {
+				// Content
+				lineIdx := i - startY - 1
+				s.WriteString("\033[1;36m│\033[0m ")
+
+				if lineIdx < len(content) {
+					line := content[lineIdx]
+					lineWidth := runewidth.StringWidth(stripAnsi(line))
+					s.WriteString(line)
+					padding := modalWidth - 4 - lineWidth
+					if padding > 0 {
+						s.WriteString(strings.Repeat(" ", padding))
+					}
+				} else {
+					s.WriteString(strings.Repeat(" ", modalWidth-4))
+				}
+
+				s.WriteString(" \033[1;36m│\033[0m\n")
+			}
+		} else if i == startY+modalHeight {
+			// Help text below modal
+			s.WriteString(strings.Repeat(" ", startX+2))
+			s.WriteString("\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33menter\033[90m]select [\033[33mesc\033[90m]cancel\033[0m\n")
+		} else {
+			s.WriteString("\n")
+		}
+	}
+
+	return s.String()
+}
+// renderPreview renders the Navidrome preview
+func (m model) renderPreview() string {
+	var s strings.Builder
+
+	// Two column layout: Left (cover + info) | Right (tracklist)
+	leftWidth := 70  // Fixed width for cover and info
+	rightWidth := m.width - leftWidth - 2
+	panelHeight := m.height - 2
+
+	// Build left panel content (cover + album info)
+	leftContent := make([]string, 0)
+
+	if len(m.previewAlbums) == 0 {
+		leftContent = append(leftContent, "\033[90mNo albums found\033[0m")
+	} else if m.previewCursor < len(m.previewAlbums) {
+		album := m.previewAlbums[m.previewCursor]
+
+		// Show cover art if present
+		if album.HasCover && len(album.Tracks) > 0 {
+			if coverData, err := taglib.ReadImage(album.Tracks[0].FilePath); err == nil && len(coverData) > 0 {
+				coverLines := renderCoverArtPreview(coverData)
+				leftContent = append(leftContent, coverLines...)
+				leftContent = append(leftContent, "")
+			}
+		}
+
+		// Album info below cover
+		leftContent = append(leftContent, "\033[1;36mAlbum:\033[0m \033[1m"+album.AlbumName+"\033[0m")
+		leftContent = append(leftContent, "\033[1;36mArtist:\033[0m "+album.AlbumArtist)
+
+		// Year with empty indicator
+		if album.Year != "" {
+			leftContent = append(leftContent, "\033[1;36mYear:\033[0m "+album.Year)
+		} else {
+			leftContent = append(leftContent, "\033[1;36mYear:\033[0m \033[90m<empty>\033[0m")
+		}
+
+		// Genre with empty indicator
+		if album.Genre != "" {
+			leftContent = append(leftContent, "\033[1;36mGenre:\033[0m "+album.Genre)
+		} else {
+			leftContent = append(leftContent, "\033[1;36mGenre:\033[0m \033[90m<empty>\033[0m")
+		}
+
+		leftContent = append(leftContent, "")
+		leftContent = append(leftContent, "\033[90mTotal: "+strconv.Itoa(len(album.Tracks))+" track(s)\033[0m")
+	}
+
+	// Build right panel content (tracklist)
+	trackListContent := make([]string, 0)
+	if m.previewCursor < len(m.previewAlbums) {
+		album := m.previewAlbums[m.previewCursor]
+
+		for _, track := range album.Tracks {
+			var trackLine strings.Builder
+
+			// Track number
+			if track.TrackNumber != "" {
+				trackLine.WriteString("\033[36m")
+				trackLine.WriteString(track.TrackNumber)
+				trackLine.WriteString(".\033[0m ")
+			} else {
+				trackLine.WriteString("\033[90m-.\033[0m ")
+			}
+
+			// Title
+			trackLine.WriteString(track.Title)
+
+			// Artist if different from album artist
+			if track.Artist != album.AlbumArtist {
+				trackLine.WriteString(" \033[90m(")
+				trackLine.WriteString(track.Artist)
+				trackLine.WriteString(")\033[0m")
+			}
+
+			trackListContent = append(trackListContent, trackLine.String())
+		}
+	}
+
+	// Create bordered panels
+	leftPanel := renderBorderedPanel("Album", leftContent, leftWidth, panelHeight, true)
+	rightPanel := renderBorderedPanel("Tracks", trackListContent, rightWidth, panelHeight, false)
+
+	// Combine panels
+	s.WriteString(combinePanelsSideBySide(leftPanel, rightPanel))
+
+	// Footer
+	s.WriteString("\033[90m")
+	s.WriteString(strings.Repeat("─", m.width))
+	s.WriteString("\033[0m\n")
+	s.WriteString("\033[90m[\033[33m↑/↓\033[90m]navigate [\033[33mp/esc\033[90m]close • \033[36mThis shows how albums will appear in Navidrome\033[0m")
 
 	return s.String()
 }

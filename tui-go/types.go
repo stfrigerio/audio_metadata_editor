@@ -31,4 +31,33 @@ type model struct {
 	errorMessage    string
 	previewFiles    []string // Files to preview during input
 	currentNodePath string   // Store current folder path to restore state
+	// File browser state
+	showFileBrowser   bool
+	browserDir        string
+	browserFiles      []string
+	browserDirs       []string
+	browserCursor     int
+	browserSelection  string
+	// Preview mode
+	showPreview       bool
+	previewAlbums     []AlbumPreview
+	previewCursor     int
+}
+
+// AlbumPreview represents how an album will appear in Navidrome
+type AlbumPreview struct {
+	AlbumName   string
+	AlbumArtist string
+	Year        string
+	Genre       string
+	Tracks      []TrackPreview
+	HasCover    bool
+}
+
+// TrackPreview represents a track within an album
+type TrackPreview struct {
+	TrackNumber string
+	Title       string
+	Artist      string
+	FilePath    string
 }

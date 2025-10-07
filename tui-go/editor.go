@@ -170,3 +170,48 @@ func editYearForFile(filePath string, newYear string) error {
 
 	return nil
 }
+
+// AddCoverImageToFiles adds a cover image to selected files
+func AddCoverImageToFiles(files []string, imagePath string) []error {
+	var errors []error
+
+	// Validate image file exists
+	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+		return []error{fmt.Errorf("image file does not exist: %s", imagePath)}
+	}
+
+	// Read image data
+	imageData, err := os.ReadFile(imagePath)
+	if err != nil {
+		return []error{fmt.Errorf("failed to read image file: %w", err)}
+	}
+
+	// Determine MIME type based on extension
+	ext := strings.ToLower(filepath.Ext(imagePath))
+	var mimeType string
+	switch ext {
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
+	default:
+		return []error{fmt.Errorf("unsupported image format: %s (use .jpg or .png)", ext)}
+	}
+
+	for _, filePath := range files {
+		if err := addCoverImageToFile(filePath, imageData, mimeType); err != nil {
+			errors = append(errors, fmt.Errorf("%s: %w", filepath.Base(filePath), err))
+		}
+	}
+
+	return errors
+}
+
+func addCoverImageToFile(filePath string, imageData []byte, mimeType string) error {
+	// Use WriteImage to add cover art
+	if err := taglib.WriteImage(filePath, imageData); err != nil {
+		return fmt.Errorf("failed to save cover image: %w", err)
+	}
+
+	return nil
+}

@@ -60,7 +60,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Handle input prompt first
+		// Handle preview mode first
+		if m.showPreview {
+			m.handlePreviewKey(msg.String())
+			return m, nil
+		}
+
+		// Handle file browser
+		if m.showFileBrowser {
+			m.handleBrowserKey(msg.String())
+			return m, nil
+		}
+
+		// Handle input prompt
 		if m.showInputPrompt {
 			m.handleInputPrompt(msg.String())
 			return m, nil
@@ -109,6 +121,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "a":
 			m.handleToggleAll()
+
+		case "p":
+			// Toggle preview mode
+			node := m.getCurrentNode()
+			if node != nil && len(node.Files) > 0 {
+				if !m.showPreview {
+					m.buildAlbumPreviews()
+					m.showPreview = true
+				} else {
+					m.showPreview = false
+					m.previewAlbums = nil
+					m.previewCursor = 0
+				}
+			}
 		}
 	}
 
@@ -119,8 +145,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) handleDown() {
 	if m.showEditMenu {
 		m.editCursor++
-		if m.editCursor >= 5 { // 5 edit options
-			m.editCursor = 4
+		if m.editCursor >= 6 { // 6 edit options
+			m.editCursor = 5
 		}
 	} else if m.inFilePanel {
 		node := m.getCurrentNode()
@@ -187,13 +213,17 @@ func (m *model) handleEnter() {
 			m.inputValue = ""
 			m.showInputPrompt = true
 			m.showEditMenu = false
-		case 1: // Edit Title
+		case 1: // Add cover image
+			// Open file browser instead of text input
+			m.openFileBrowser()
+			m.showEditMenu = false
+		case 2: // Edit Title
 			m.startEditAction("edit-title", "Enter new title:")
-		case 2: // Edit Artist
+		case 3: // Edit Artist
 			m.startEditAction("edit-artist", "Enter new artist:")
-		case 3: // Edit Album
+		case 4: // Edit Album
 			m.startEditAction("edit-album", "Enter new album:")
-		case 4: // Edit Year
+		case 5: // Edit Year
 			m.startEditAction("edit-year", "Enter new year:")
 		}
 	} else if m.inFilePanel {
@@ -324,6 +354,8 @@ func (m *model) executeAction() {
 	switch m.pendingAction {
 	case "strip":
 		errors = StripTextFromFiles(selectedFiles, m.inputValue)
+	case "add-cover":
+		errors = AddCoverImageToFiles(selectedFiles, m.inputValue)
 	case "edit-title":
 		errors = EditTitleForFiles(selectedFiles, m.inputValue)
 	case "edit-artist":
