@@ -3,6 +3,7 @@ Main editor logic with refactored functions.
 """
 
 import os
+import re
 from typing import Optional, List
 from enum import Enum
 
@@ -10,6 +11,8 @@ from .audio import AudioFile, find_audio_files, load_audio_file
 from .ui import ui
 from .config import TAG_CONFIG
 from .colors import print_error, print_success, print_info, print_warning
+from .wikipedia import WikipediaAlbumExtractor, format_tracklist_comparison
+from .preview import nav_context
 
 class EditAction(Enum):
     """Possible actions from editing session."""
@@ -212,6 +215,8 @@ class AudioMetadataEditor:
             return False
         
         current_path = os.path.abspath(root_directory)
+        nav_context.clear()
+        nav_context.push("Folder Navigation", current_path)
         
         while True:
             # Get subdirectories and audio files in current path
@@ -233,7 +238,9 @@ class AudioMetadataEditor:
                     ui.show_invalid_option()
             elif choice.upper() == 'E' and audio_files:
                 # Edit audio files in current directory
+                nav_context.push("Directory Editor", current_path)
                 if self.run_main_menu(current_path):
+                    nav_context.pop()
                     continue  # Return to navigation after editing
                 else:
                     return False
@@ -242,6 +249,8 @@ class AudioMetadataEditor:
                 dir_index = int(choice) - 1
                 if 0 <= dir_index < len(subdirs):
                     current_path = subdirs[dir_index]
+                    nav_context.clear()
+                    nav_context.push("Folder Navigation", current_path)
                 else:
                     ui.show_invalid_option()
             else:
@@ -265,6 +274,9 @@ class AudioMetadataEditor:
         self.current_directory = directory
         self.audio_files = find_audio_files(directory)
         
+        if not nav_context.breadcrumbs:
+            nav_context.push("Main Menu", directory)
+        
         if not self.audio_files:
             print_error(f"No audio files found in: {directory}")
             return False
@@ -276,9 +288,13 @@ class AudioMetadataEditor:
             choice = ui.get_menu_choice()
             
             if choice == '1':
+                nav_context.push("Single File Mode", directory)
                 self._run_single_file_mode()
+                nav_context.pop()
             elif choice == '2':
+                nav_context.push("Batch Processing", directory)
                 self._run_batch_processing_mode()
+                nav_context.pop()
             elif choice.upper() == 'Q':
                 return True
             else:
@@ -321,7 +337,11 @@ class AudioMetadataEditor:
             elif choice == '5':
                 self._batch_set_album_artist()
             elif choice == '6':
+                self._batch_set_album()
+            elif choice == '7':
                 self._batch_set_album_art()
+            elif choice == '8':
+                self._batch_apply_from_wikipedia()
             elif choice.upper() == 'B':
                 break
             elif choice.upper() == 'Q':
@@ -455,6 +475,17 @@ class AudioMetadataEditor:
         
         self._apply_batch_operation('album_artist', album_artist)
     
+    def _batch_set_album(self):
+        """Set album title for all files."""
+        album = ui.get_user_input("Enter album title to set for all files")
+        if not album:
+            return
+        
+        if not ui.confirm_action(f"Set album title '{album}' for {len(self.audio_files)} files?"):
+            return
+        
+        self._apply_batch_operation('album', album)
+    
     def _batch_set_album_art(self):
         """Set the same album art image for all files."""
         img_path = ui.get_image_path_input()
@@ -480,6 +511,155 @@ class AudioMetadataEditor:
         
         print_success(f"Successfully updated album art for {success_count}/{len(self.audio_files)} files")
     
+    def _batch_apply_from_wikipedia(self):
+        """Apply album metadata from Wikipedia page."""
+        wiki_url = ui.get_user_input("Enter Wikipedia album page URL")
+        if not wiki_url:
+            return
+        
+        print_info("Fetching album information from Wikipedia...")
+        extractor = WikipediaAlbumExtractor()
+        album_info = extractor.extract_album_info(wiki_url)
+        
+        if not album_info:
+            print_error("Failed to extract album information from Wikipedia")
+            return
+        
+        # Display extracted information
+        print_success("Album information extracted:")
+        if album_info['title']:
+            print_info(f"  Album: {album_info['title']}")
+        if album_info['artist']:
+            print_info(f"  Artist: {album_info['artist']}")
+        if album_info['year']:
+            print_info(f"  Year: {album_info['year']}")
+        if album_info['genres']:
+            print_info(f"  Genres: {', '.join(album_info['genres'])}")
+        if album_info['cover_url']:
+            print_info(f"  Cover art: Found")
+        if album_info['tracklist']:
+            print_info(f"  Tracklist: {len(album_info['tracklist'])} tracks")
+        
+        print()
+        
+        # Compare tracklist with actual files
+        if album_info['tracklist']:
+            print_info("Comparing Wikipedia tracklist with your files:")
+            comparison = extractor.compare_tracklist(album_info['tracklist'], self.audio_files)
+            print(format_tracklist_comparison(comparison))
+            print()
+        
+        # Ask user what to apply
+        print_info("Select what to apply:")
+        print("  1) Everything (cover, year, genres, album, artist)")
+        print("  2) Cover art only")
+        print("  3) Metadata only (year, genres, album, artist)")
+        print("  4) Cancel")
+        
+        apply_choice = ui.get_menu_choice()
+        
+        if apply_choice == '4':
+            return
+        
+        apply_cover = apply_choice in ['1', '2']
+        apply_metadata = apply_choice in ['1', '3']
+        
+        if not apply_cover and not apply_metadata:
+            print_warning("Invalid choice")
+            return
+        
+        # Download cover if requested
+        cover_path = None
+        if apply_cover and album_info['cover_url']:
+            cover_path = os.path.join(self.current_directory, 'cover.jpg')
+            print_info(f"Downloading album cover to {cover_path}...")
+            if not extractor.download_cover(album_info['cover_url'], cover_path):
+                print_warning("Failed to download cover, continuing with metadata...")
+                cover_path = None
+        
+        # Apply metadata to all files
+        success_count = 0
+        for filepath in self.audio_files:
+            audio_file = load_audio_file(filepath)
+            if not audio_file:
+                continue
+            
+            changes_made = False
+            
+            if apply_metadata:
+                # Set album title
+                if album_info['title']:
+                    audio_file.set_tag_value('album', album_info['title'])
+                    changes_made = True
+                
+                # Set artist
+                if album_info['artist']:
+                    audio_file.set_tag_value('artist', album_info['artist'])
+                    audio_file.set_tag_value('album_artist', album_info['artist'])
+                    changes_made = True
+                
+                # Set year
+                if album_info['year']:
+                    audio_file.set_tag_value('year', album_info['year'])
+                    changes_made = True
+                
+                # Set genre (join multiple genres with semicolon)
+                if album_info['genres']:
+                    genre_string = '; '.join(album_info['genres'][:3])  # Limit to 3 genres
+                    audio_file.set_tag_value('genre', genre_string)
+                    changes_made = True
+            
+            # Set cover art
+            if cover_path and os.path.exists(cover_path):
+                if audio_file.set_album_art(cover_path):
+                    changes_made = True
+            
+            # Save changes
+            if changes_made:
+                if audio_file.save():
+                    success_count += 1
+                    print_info(f"Updated: {os.path.basename(filepath)}")
+                else:
+                    print_error(f"Failed to save: {os.path.basename(filepath)}")
+        
+        print_success(f"Successfully updated {success_count}/{len(self.audio_files)} files")
+        
+        # Optionally update track numbers based on Wikipedia tracklist
+        if album_info['tracklist'] and success_count > 0:
+            if ui.confirm_action("Update track numbers based on Wikipedia tracklist?"):
+                self._update_track_numbers_from_wikipedia(album_info['tracklist'], extractor)
+    
+    def _update_track_numbers_from_wikipedia(self, wiki_tracks: List, extractor: WikipediaAlbumExtractor):
+        """Update track numbers based on Wikipedia tracklist matching."""
+        comparison = extractor.compare_tracklist(wiki_tracks, self.audio_files)
+        
+        if not comparison['matched']:
+            print_warning("No tracks could be matched for numbering")
+            return
+        
+        success_count = 0
+        total_tracks = len(wiki_tracks)
+        
+        for match in comparison['matched']:
+            # Find the actual file path
+            for filepath in self.audio_files:
+                filename = os.path.basename(filepath)
+                name, _ = os.path.splitext(filename)
+                name = re.sub(r'^\d+[\s\-_.]*', '', name)
+                name = re.sub(r'[\s\-_]+', ' ', name).strip()
+                
+                if name.lower() == match['file'].lower():
+                    audio_file = load_audio_file(filepath)
+                    if audio_file:
+                        track_num_str = f"{match['track_num']}/{total_tracks}"
+                        if audio_file.set_tag_value('track_num', track_num_str):
+                            if audio_file.save():
+                                success_count += 1
+                                print_info(f"Set track #{match['track_num']} for: {filename}")
+                    break
+        
+        print_success(f"Updated track numbers for {success_count} files")
+    
     def _apply_batch_operation(self, tag_key: str, value: str):
         """Apply a tag operation to all files."""
         success_count = 0
@@ -499,8 +679,10 @@ class AudioMetadataEditor:
         if not audio_file:
             return
         
+        nav_context.push("File Editor", os.path.basename(filepath))
         session = EditorSession(audio_file, is_batch=False)
         session.run()
+        nav_context.pop()
     
     # Legacy methods for backward compatibility
     def edit_single_file(self, filepath: str) -> bool:

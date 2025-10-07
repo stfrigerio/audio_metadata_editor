@@ -9,6 +9,7 @@ from .colors import (
     print_warning, print_info, highlight, dim, colorize, Colors
 )
 from .audio import AudioFile
+from .preview import nav_context
 import os
 
 class MenuOption:
@@ -28,6 +29,7 @@ class EditorUI:
     def display_welcome(self, filename: str, is_batch: bool = False, 
                        file_index: int = 0, total_files: int = 0):
         """Display welcome message and file info."""
+        nav_context.display()
         if is_batch:
             batch_info = f"[File {file_index + 1}/{total_files}]"
             print_header(f"{batch_info} Editing: {filename}")
@@ -234,6 +236,7 @@ class EditorUI:
 
     def display_main_mode_menu(self, file_count: int):
         """Display the main mode selection menu."""
+        nav_context.display()
         print_header("Audio Metadata Editor")
         print_info(f"Directory contains {file_count} audio files")
         print_section("Choose Mode")
@@ -250,7 +253,9 @@ class EditorUI:
     
     def display_file_list(self, audio_files: List[str], directory: str):
         """Display list of audio files for selection."""
-        print_header(f"Select File to Edit - {directory}")
+        nav_context.display()
+        print_header(f"Select File to Edit")
+        print_info(f"Directory: {directory}")
         print_section(f"Audio Files ({len(audio_files)} found)")
         
         for i, filepath in enumerate(audio_files):
@@ -270,6 +275,7 @@ class EditorUI:
     
     def display_batch_menu(self, file_count: int):
         """Display batch processing menu."""
+        nav_context.display()
         print_header("Batch Processing Mode")
         print_info(f"Operations will be applied to ALL {file_count} files")
         print_section("Batch Operations")
@@ -280,7 +286,10 @@ class EditorUI:
             ("3)", "Set year for all"),
             ("4)", "Set artist for all"),
             ("5)", "Set album artist for all"),
-            ("6)", "Set album art for all"),
+            ("6)", "Set album title for all"),
+            ("7)", "Set album art for all"),
+            ("8)", "Apply from Wikipedia album page"),
+            ("9)", "Preview album (Navidrome check)"),
             ("B)", "Back to main menu"),
             ("Q)", "Quit")
         ]
@@ -291,6 +300,7 @@ class EditorUI:
 
     def display_folder_navigation_menu(self, current_path: str, subdirs: List[str], audio_file_count: int):
         """Display folder navigation menu."""
+        nav_context.display()
         print_header("Folder Navigation")
         
         # Show current path
@@ -319,19 +329,20 @@ class EditorUI:
             print()
         
         # Show available actions
-        options = []
-        
-        # Add edit option if audio files are present
         if audio_file_count > 0:
-            options.append(("E)", f"Edit audio files in this directory ({audio_file_count} files)"))
+            print_section("Actions")
+            key_colored = colorize("E)", Colors.YELLOW)
+            print(f"  {key_colored} Edit audio files in this directory ({audio_file_count} files)")
+            print()  # Add spacing
         
         # Add navigation options
-        options.extend([
+        print_section("Navigation")
+        nav_options = [
             ("U)", "Go up one directory"),
             ("Q)", "Quit")
-        ])
+        ]
         
-        for key, desc in options:
+        for key, desc in nav_options:
             key_colored = colorize(key, Colors.YELLOW)
             print(f"  {key_colored} {desc}")
 

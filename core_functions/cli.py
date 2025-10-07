@@ -63,7 +63,13 @@ In batch mode, you can process multiple files with options to save, skip, or qui
         action='store_true',
         help="Disable colored output"
     )
-    
+
+    parser.add_argument(
+        '--tui',
+        action='store_true',
+        help="Launch the Textual TUI interface (experimental)"
+    )
+
     return parser
 
 def validate_path(path: str) -> bool:
@@ -83,16 +89,33 @@ def main() -> int:
     try:
         parser = create_parser()
         args = parser.parse_args()
-        
+
         # Handle --no-color option
         if args.no_color:
             # Disable colorama colors
             os.environ['NO_COLOR'] = '1'
-        
+
         # Validate path
         if not validate_path(args.path):
             return 1
-        
+
+        # Handle TUI mode
+        if args.tui:
+            if not os.path.isdir(args.path):
+                print_error("TUI mode requires a directory path")
+                return 1
+
+            try:
+                from tui.app import run_tui
+                run_tui(args.path)
+                return 0
+            except ImportError:
+                print_error("TUI dependencies not installed. Install with: pip install textual")
+                return 1
+            except Exception as e:
+                print_error(f"TUI error: {e}")
+                return 1
+
         # Create editor and process files
         editor = create_editor()
         
