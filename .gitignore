@@ -1,2 +1,4 @@
-myenv/
 test_files/
+
+# Go build output
+/go/audio-meta-edit
