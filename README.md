@@ -5,6 +5,8 @@ preview tags, and edit them in place — title, artist, album, album
 artist, track, year, genre, and embedded cover art. Built on Bubble
 Tea.
 
+![audio-meta-edit: browsing albums, previewing a cover, stripping junk from a messy rip's titles](assets/demo.gif)
+
 ## Build
 
 Needs Go ≥ 1.22.
